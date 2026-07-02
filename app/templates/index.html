@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WC 2026 Match Predictor</title>
+  <style>
+    body { font-family: sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; }
+    h1   { color: #1a4a7a; }
+    label { display: block; margin-top: 12px; font-weight: bold; }
+    select, input[type=submit] { margin-top: 4px; padding: 6px 10px; font-size: 1rem; }
+    input[type=submit] { background: #1a4a7a; color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-top: 16px; }
+    .result { margin-top: 32px; background: #f0f6ff; border-left: 4px solid #1a4a7a; padding: 16px; }
+    .result h2 { margin: 0 0 12px; }
+    .bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .bar-label { width: 90px; font-size: 0.85rem; }
+    .bar { height: 20px; background: #1a4a7a; border-radius: 3px; transition: width 0.4s; }
+    .bar.draw { background: #f0a500; }
+    .bar.away { background: #c0392b; }
+    .pct { font-size: 0.85rem; }
+    .neutral-row { margin-top: 12px; display: flex; align-items: center; gap: 8px; }
+  </style>
+</head>
+<body>
+  <h1>⚽ WC 2026 Match Predictor</h1>
+
+  <form method="POST" action="/predict">
+    <label for="home_team">Home team</label>
+    <select name="home_team" id="home_team" required>
+      {% for team in teams %}
+      <option value="{{ team }}" {% if result and result.home == team %}selected{% endif %}>{{ team }}</option>
+      {% endfor %}
+    </select>
+
+    <label for="away_team">Away team</label>
+    <select name="away_team" id="away_team" required>
+      {% for team in teams %}
+      <option value="{{ team }}" {% if result and result.away == team %}selected{% endif %}>{{ team }}</option>
+      {% endfor %}
+    </select>
+
+    <div class="neutral-row">
+      <input type="checkbox" name="neutral" id="neutral" {% if result and result.neutral %}checked{% endif %} />
+      <label for="neutral" style="margin:0; font-weight:normal;">Neutral venue</label>
+    </div>
+
+    <input type="submit" value="Predict" />
+  </form>
+
+  {% if result %}
+  <div class="result">
+    <h2>{{ result.home }} vs {{ result.away }}{% if result.neutral %} (neutral){% endif %}</h2>
+    <div class="bar-row">
+      <span class="bar-label">Home win</span>
+      <div class="bar" style="width:{{ result.p_home_win }}%"></div>
+      <span class="pct">{{ result.p_home_win }}%</span>
+    </div>
+    <div class="bar-row">
+      <span class="bar-label">Draw</span>
+      <div class="bar draw" style="width:{{ result.p_draw }}%"></div>
+      <span class="pct">{{ result.p_draw }}%</span>
+    </div>
+    <div class="bar-row">
+      <span class="bar-label">Away win</span>
+      <div class="bar away" style="width:{{ result.p_away_win }}%"></div>
+      <span class="pct">{{ result.p_away_win }}%</span>
+    </div>
+  </div>
+  {% endif %}
+</body>
+</html>

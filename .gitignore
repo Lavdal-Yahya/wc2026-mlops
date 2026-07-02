@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+pip-wheel-metadata/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# DVC
+.dvc/tmp/
+.dvc/cache/
+
+# Data (DVC-tracked — do not commit raw data; .gitkeep placeholders are allowed)
+data/*
+!data/raw/
+!data/processed/
+!data/interim/
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+data/interim/*
+!data/interim/.gitkeep
+
+# Models (DVC-tracked)
+models/
+
+# MLflow
+mlruns/
+mlflow.db
+
+# Environment
+.env
+*.pem
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
