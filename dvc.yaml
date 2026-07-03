@@ -26,3 +26,33 @@ stages:
       - data/processed/train.csv
       - data/processed/test.csv
       - data/processed/ratings_snapshot.joblib
+
+  train:
+    cmd: python -m scripts.train
+    deps:
+      - scripts/train.py
+      - src/evaluation/metrics.py
+      - data/processed/train.csv
+    params:
+      - seed
+      - features.version
+      - models
+      - validation.cv.n_splits
+    outs:
+      - models/model.joblib
+
+  evaluate:
+    cmd: python -m scripts.evaluate
+    deps:
+      - scripts/evaluate.py
+      - src/evaluation/metrics.py
+      - models/model.joblib
+      - data/processed/test.csv
+    metrics:
+      - reports/metrics.json:
+          cache: false
+    plots:
+      - reports/calibration_curve.png:
+          cache: false
+      - reports/confusion_matrix.png:
+          cache: false
