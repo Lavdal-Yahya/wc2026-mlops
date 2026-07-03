@@ -1,10 +1,8 @@
 """Flask prediction app — WC 2026 match outcome forecaster.
 
-Loads the latest registered model from MLflow Model Registry and
-ratings_snapshot.joblib (produced by the preprocess stage) to serve
-live match predictions.
-
-NOTE: Real registry + snapshot wired in L6 after gate confirmation.
+Loads the registered model from the MLflow Model Registry (falling back to
+the local models/model.joblib bundle) and ratings_snapshot.joblib (produced
+by the preprocess stage) to serve live match predictions.
 """
 from __future__ import annotations
 
@@ -22,22 +20,60 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret")
 
-MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000")
+# Only attempt the MLflow registry when a tracking server was explicitly
+# configured — the default below is just so `mlflow.set_tracking_uri` always
+# has a value to point at for any other MLflow calls in this process.
+_RAW_MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI")
+MLFLOW_TRACKING_URI = _RAW_MLFLOW_TRACKING_URI or "http://127.0.0.1:5000"
 REGISTERED_MODEL = "wc-outcome-model"
+MODEL_BUNDLE_PATH = Path(os.getenv("MODEL_BUNDLE_PATH", "models/model.joblib"))
 SNAPSHOT_PATH = Path(os.getenv("SNAPSHOT_PATH", "data/processed/ratings_snapshot.joblib"))
 
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
 _model = None
+_bundle = None
 _snapshot = None
 
 
+def _load_bundle() -> dict:
+    """Load the local model.joblib bundle — the only source of the training
+    ``features`` list and ``classes``. The MLflow registry only stores the bare
+    sklearn pipeline, so this is loaded regardless of where the pipeline itself
+    comes from.
+    """
+    global _bundle
+    if _bundle is None:
+        if not MODEL_BUNDLE_PATH.exists():
+            raise RuntimeError(
+                f"Model bundle not found at {MODEL_BUNDLE_PATH}. "
+                "Run `python -m scripts.train` first."
+            )
+        _bundle = joblib.load(MODEL_BUNDLE_PATH)
+    return _bundle
+
+
 def _load_model():
+    """Return the serving pipeline.
+
+    Tries the MLflow registry's latest ``wc-outcome-model`` version when
+    MLFLOW_TRACKING_URI is configured; falls back to the local bundle's
+    pipeline when the registry is unreachable or has no versions registered
+    (no version is ever transitioned to a stage, so we ask for "latest").
+    """
     global _model
-    if _model is None:
-        client = mlflow.tracking.MlflowClient()
-        latest = client.get_latest_versions(REGISTERED_MODEL, stages=["Production"])[0]
-        _model = mlflow.sklearn.load_model(f"models:/{REGISTERED_MODEL}/Production")
+    if _model is not None:
+        return _model
+
+    if _RAW_MLFLOW_TRACKING_URI:
+        try:
+            _model = mlflow.sklearn.load_model(f"models:/{REGISTERED_MODEL}/latest")
+            return _model
+        except Exception as exc:  # noqa: BLE001 — registry may be down or empty
+            print(f"WARNING: could not load '{REGISTERED_MODEL}' from MLflow registry "
+                  f"({exc}); falling back to local model bundle.")
+
+    _model = _load_bundle()["pipeline"]
     return _model
 
 
