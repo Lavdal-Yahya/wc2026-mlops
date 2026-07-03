@@ -1,6 +1,7 @@
 """Preprocess stage — owned by Souleyman (implemented by Mouna).
 
-Builds the model-ready train/test tables and the serving-time ratings snapshot.
+Builds the model-ready train/test tables and the serving-time ratings snapshot,
+then logs the run to MLflow so the pipeline has history from day one (PDF §4).
 
 Outputs:
   data/processed/train.csv               (train + val, chronological)
@@ -17,6 +18,7 @@ Run from the project root:  python -m scripts.preprocess
 """
 from __future__ import annotations
 
+import os
 from collections import deque
 
 import joblib
@@ -94,6 +96,43 @@ def build_ratings_snapshot(matches: pd.DataFrame, *, window: int) -> dict[str, d
     return snapshot
 
 
+def _log_to_mlflow(config, version, train_df, test_df, feat_cols, target_col, artifacts) -> None:
+    """Log params, dataset stats and produced artifacts to the MLflow server.
+
+    Best-effort: if the tracking server is unreachable, local outputs are still
+    written so the pipeline is never blocked by a down EC2 instance.
+    """
+    uri = os.getenv("MLFLOW_TRACKING_URI") or config.get("mlflow", {}).get("tracking_uri")
+    if not uri:
+        print("MLFLOW_TRACKING_URI not set; skipping MLflow logging.")
+        return
+    try:
+        import mlflow
+
+        mlflow.set_tracking_uri(uri)
+        mlflow.set_experiment(config["mlflow"]["experiment"])
+        with mlflow.start_run(run_name=f"preprocess-{version}"):
+            mlflow.set_tag("stage", "preprocess")
+            mlflow.set_tag("feature_version", version)
+            mlflow.log_params({
+                "feature_version": version,
+                "seed": config.get("seed", 42),
+                "train_end": config["validation"]["train_end"],
+                "val_end": config["validation"]["val_end"],
+                "rolling_window": config["features"]["rolling"]["window_matches"],
+                "n_features": len(feat_cols),
+            })
+            mlflow.log_metrics({"n_train": len(train_df), "n_test": len(test_df)})
+            for split_name, frame in (("train", train_df), ("test", test_df)):
+                for cls, frac in frame[target_col].value_counts(normalize=True).items():
+                    mlflow.log_metric(f"{split_name}_frac_{cls}", float(frac))
+            for art in artifacts:
+                mlflow.log_artifact(str(art), artifact_path="processed")
+        print(f"Logged preprocess run to MLflow at {uri}")
+    except Exception as exc:  # noqa: BLE001 — never let tracking break preprocessing
+        print(f"WARNING: MLflow logging failed ({exc}). Local outputs were still written.")
+
+
 def main() -> None:
     config = load_config()
     set_global_seed(config.get("seed", 42))
@@ -155,6 +194,9 @@ def main() -> None:
     print(f"  -> {train_path}")
     print(f"  -> {test_path}")
     print(f"  -> {snap_path}")
+
+    _log_to_mlflow(config, version, train_df, test_df, feat_cols, target_col,
+                   [train_path, test_path, snap_path])
 
 
 if __name__ == "__main__":
