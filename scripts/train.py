@@ -1,15 +1,16 @@
 """Train stage — owned by Mohamed (implemented by Mouna).
 
-Trains the candidate models declared in params.yaml with time-aware CV, selects
-the best by cross-validated log loss, refits it on the full train set, and saves
-the pipeline to models/model.joblib (DVC-trackable, Flask fallback).
+Trains the candidate models declared in params.yaml with time-aware CV, logs every
+configuration to MLflow, and registers ONLY the best model — lowest cross-validated
+log loss — as ``wc-outcome-model`` in the MLflow Model Registry (PDF §4).
 
 Inputs:
   data/processed/train.csv   (produced by scripts/preprocess.py)
-  params.yaml                (model grids, CV config)
+  params.yaml                (model grids, CV, mlflow config)
 
 Outputs:
-  models/model.joblib        (best refit pipeline + feature list + classes)
+  models/model.joblib        (best refit pipeline + feature list; DVC-trackable, Flask fallback)
+  registered ``wc-outcome-model`` in the MLflow registry (when a server is configured)
 
 Selection metric is log loss (probabilistic), matching src/evaluation/metrics.py.
 CV is a forward-chaining TimeSeriesSplit so no future match informs a past fold.
@@ -19,6 +20,7 @@ Run from the project root:  python -m scripts.train
 from __future__ import annotations
 
 import itertools
+import os
 
 import joblib
 import numpy as np
@@ -93,6 +95,47 @@ def cv_scores(est, X: np.ndarray, y: np.ndarray, n_splits: int) -> tuple[float, 
     return float(np.mean(losses)), float(np.mean(accs))
 
 
+def _init_mlflow(config):
+    """Return (mlflow module, active?) — active only when a tracking server is reachable."""
+    uri = os.getenv("MLFLOW_TRACKING_URI") or config.get("mlflow", {}).get("tracking_uri")
+    if not uri:
+        print("MLFLOW_TRACKING_URI not set; training locally without MLflow logging/registry.")
+        return None, False
+    try:
+        import mlflow
+
+        mlflow.set_tracking_uri(uri)
+        mlflow.set_experiment(config["mlflow"]["experiment"])
+        return mlflow, True
+    except Exception as exc:  # noqa: BLE001
+        print(f"WARNING: MLflow unavailable ({exc}); training locally.")
+        return None, False
+
+
+def _register_best(mlflow, config, est, name, params, cv_log_loss, X, feat_cols) -> None:
+    """Log + register the winning model as the sole registered version (PDF §4)."""
+    import mlflow.sklearn
+    from mlflow.models import infer_signature
+
+    reg_name = config["mlflow"]["registered_model"]
+    mlflow.set_tag("best_model", name)
+    mlflow.log_params({f"best_{k}": v for k, v in params.items()})
+    mlflow.log_metric("best_cv_log_loss", cv_log_loss)
+    signature = infer_signature(pd.DataFrame(X[:5], columns=feat_cols), aligned_proba(est, X[:5]))
+    try:
+        mlflow.sklearn.log_model(
+            est, artifact_path="model", registered_model_name=reg_name,
+            signature=signature, input_example=X[:2],
+        )
+        print(f"Registered best model as '{reg_name}'.")
+    except Exception as exc:  # noqa: BLE001 — file-store backends can't register
+        print(f"WARNING: registry unavailable ({exc}); logging model artifact without registration.")
+        try:
+            mlflow.sklearn.log_model(est, artifact_path="model", signature=signature)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def main() -> None:
     config = load_config()
     seed = config.get("seed", 42)
@@ -115,10 +158,23 @@ def main() -> None:
     y = df[target].to_numpy()
     print(f"[train:{version}] {len(df):,} rows  {len(feat_cols)} features  {n_splits}-fold TS-CV")
 
+    mlflow, active = _init_mlflow(config)
+    if active:
+        mlflow.start_run(run_name=f"train-{version}")
+        mlflow.set_tag("stage", "train")
+        mlflow.set_tag("feature_version", version)
+
     best = None  # (log_loss, name, params, estimator)
     for name, params, est in build_candidates(config["models"], seed):
         log_loss, acc = cv_scores(est, X, y, n_splits)
         print(f"  {name:<20} {params}  -> cv_log_loss={log_loss:.4f}  cv_acc={acc:.3f}")
+        if active:
+            with mlflow.start_run(run_name=name, nested=True):
+                mlflow.set_tag("stage", "train")
+                mlflow.set_tag("model", name)
+                mlflow.log_params({**params, "model": name, "feature_version": version})
+                mlflow.log_metric("cv_log_loss", log_loss)
+                mlflow.log_metric("cv_accuracy", acc)
         if best is None or log_loss < best[0]:
             best = (log_loss, name, params, est)
 
@@ -141,6 +197,10 @@ def main() -> None:
     model_path = models_dir / "model.joblib"
     joblib.dump(bundle, model_path)
     print(f"  -> {model_path}")
+
+    if active:
+        _register_best(mlflow, config, best_est, best_name, best_params, best_ll, X, feat_cols)
+        mlflow.end_run()
 
 
 if __name__ == "__main__":
