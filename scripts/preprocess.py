@@ -30,6 +30,7 @@ from src.data.load import load_raw
 from src.data.splits import chronological_split
 from src.features.build import CONTEXT_COLS, build_features
 from src.features.elo import INITIAL_RATING, final_ratings
+from src.features.h2h import _pair_key
 from src.utils.config import PROJECT_ROOT, load_config
 from src.utils.seeds import set_global_seed
 
@@ -58,42 +59,85 @@ def select_feature_columns(version: str) -> list[str]:
 
 
 def build_ratings_snapshot(matches: pd.DataFrame, *, window: int) -> dict[str, dict]:
-    """Post-history per-team serving state: latest Elo + last-`window` form.
+    """Post-history serving state: latest Elo, rolling form and head-to-head record.
 
     The Flask app (app/app.py) reads this snapshot to build a prediction feature
     vector for a fixture that has not been played yet, so we want the state
     *after* the most recent match — not the pre-match features stored per row.
+    Mirrors the same rolling window (src/features/rolling.py) and head-to-head
+    (src/features/h2h.py) bookkeeping used at training time so v2 columns can be
+    reconstructed at serving time.
 
-    Keys per team match what app.py expects: elo, rolling_pts, rolling_gf, rolling_ga.
+    Returns ``{"teams": {team: {...}}, "h2h": {(team_a, team_b): {...}}}`` where
+    ``team_a <= team_b`` (see ``_pair_key``). Per-team keys: elo, rolling_gf,
+    rolling_ga, rolling_pts, rolling_winrate, rolling_drawrate, matches,
+    last_match_date (ISO date string, or None if the team never played).
     """
     elo = final_ratings(matches)  # team -> Elo after the last played match
     ordered = matches.sort_values("date", kind="stable")
 
     history: dict[str, deque] = {}
-    for h, a, hs, as_ in zip(
-        ordered["home_team"], ordered["away_team"],
-        ordered["home_score"], ordered["away_score"],
-    ):
-        history.setdefault(h, deque(maxlen=window)).append((int(hs), int(as_)))
-        history.setdefault(a, deque(maxlen=window)).append((int(as_), int(hs)))
+    last_date: dict[str, str] = {}
+    h2h_state: dict[tuple[str, str], tuple[int, int, int, int]] = {}
 
-    snapshot: dict[str, dict] = {}
+    for h, a, hs, as_, dt in zip(
+        ordered["home_team"], ordered["away_team"],
+        ordered["home_score"], ordered["away_score"], ordered["date"],
+    ):
+        hs, as_ = int(hs), int(as_)
+        pts_h = 3 if hs > as_ else 1 if hs == as_ else 0
+        pts_a = 3 if as_ > hs else 1 if hs == as_ else 0
+        history.setdefault(h, deque(maxlen=window)).append((hs, as_, pts_h))
+        history.setdefault(a, deque(maxlen=window)).append((as_, hs, pts_a))
+        date_str = pd.Timestamp(dt).date().isoformat()
+        last_date[h] = date_str
+        last_date[a] = date_str
+
+        key = _pair_key(h, a)
+        nm, wins_first, draws, gd_first = h2h_state.get(key, (0, 0, 0, 0))
+        gd = hs - as_
+        gd_in_key = gd if key[0] == h else -gd
+        if gd > 0:
+            won_first = 1 if key[0] == h else 0
+        elif gd < 0:
+            won_first = 1 if key[0] == a else 0
+        else:
+            won_first = 0
+        is_draw = 1 if gd == 0 else 0
+        h2h_state[key] = (nm + 1, wins_first + won_first, draws + is_draw, gd_first + gd_in_key)
+
+    teams: dict[str, dict] = {}
     for team in set(elo) | set(history):
         dq = history.get(team)
         if dq:
-            gf = sum(gs for gs, _ in dq) / len(dq)
-            ga = sum(gc for _, gc in dq) / len(dq)
-            pts = sum(3 if gs > gc else 1 if gs == gc else 0 for gs, gc in dq) / len(dq)
+            wins = sum(1 for gs, gc, _ in dq if gs > gc)
+            draws = sum(1 for gs, gc, _ in dq if gs == gc)
+            gf = sum(gs for gs, _, _ in dq) / len(dq)
+            ga = sum(gc for _, gc, _ in dq) / len(dq)
+            pts = sum(p for _, _, p in dq) / len(dq)
+            winrate = wins / len(dq)
+            drawrate = draws / len(dq)
         else:
-            gf = ga = pts = 0.0
-        snapshot[team] = {
+            gf = ga = pts = winrate = drawrate = 0.0
+        teams[team] = {
             "elo": float(elo.get(team, INITIAL_RATING)),
             "rolling_gf": float(gf),
             "rolling_ga": float(ga),
             "rolling_pts": float(pts),
+            "rolling_winrate": float(winrate),
+            "rolling_drawrate": float(drawrate),
             "matches": len(dq) if dq else 0,
+            "last_match_date": last_date.get(team),
         }
-    return snapshot
+
+    # Store the raw counters — app.py re-orients them to the requested home/away
+    # side the same way src/features/h2h.py does for a specific match's frame.
+    h2h = {
+        key: {"n": nm, "wins_first": wins_first, "draws": draws, "gd_first": gd_first}
+        for key, (nm, wins_first, draws, gd_first) in h2h_state.items()
+    }
+
+    return {"teams": teams, "h2h": h2h}
 
 
 def _log_to_mlflow(config, version, train_df, test_df, feat_cols, target_col, artifacts) -> None:
@@ -189,7 +233,7 @@ def main() -> None:
     print(
         f"[preprocess:{version}] "
         f"train={len(train_df):,} rows  test={len(test_df):,} rows  "
-        f"features={len(feat_cols)}  teams={len(snapshot):,}"
+        f"features={len(feat_cols)}  teams={len(snapshot['teams']):,}"
     )
     print(f"  -> {train_path}")
     print(f"  -> {test_path}")
