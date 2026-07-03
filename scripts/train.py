@@ -1,21 +1,41 @@
 """Train stage — owned by Mohamed (implemented by Mouna).
 
-Model candidates and time-aware cross-validation helpers for the training stage.
+Trains the candidate models declared in params.yaml with time-aware CV, selects
+the best by cross-validated log loss, refits it on the full train set, and saves
+the pipeline to models/model.joblib (DVC-trackable, Flask fallback).
+
+Inputs:
+  data/processed/train.csv   (produced by scripts/preprocess.py)
+  params.yaml                (model grids, CV config)
+
+Outputs:
+  models/model.joblib        (best refit pipeline + feature list + classes)
+
 Selection metric is log loss (probabilistic), matching src/evaluation/metrics.py.
 CV is a forward-chaining TimeSeriesSplit so no future match informs a past fold.
+
+Run from the project root:  python -m scripts.train
 """
 from __future__ import annotations
 
 import itertools
 
+import joblib
 import numpy as np
+import pandas as pd
+from dotenv import load_dotenv
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
+from scripts.preprocess import META_COLS
 from src.evaluation.metrics import CLASSES, compute_all_metrics
+from src.utils.config import PROJECT_ROOT, load_config
+from src.utils.seeds import set_global_seed
+
+load_dotenv()
 
 
 def build_candidates(models_cfg: dict, seed: int):
@@ -71,3 +91,57 @@ def cv_scores(est, X: np.ndarray, y: np.ndarray, n_splits: int) -> tuple[float, 
         losses.append(metrics.log_loss)
         accs.append(metrics.accuracy)
     return float(np.mean(losses)), float(np.mean(accs))
+
+
+def main() -> None:
+    config = load_config()
+    seed = config.get("seed", 42)
+    set_global_seed(seed)
+
+    paths = config["paths"]
+    target = config["target"]["column"]
+    version = config["features"]["version"]
+    n_splits = config["validation"]["cv"]["n_splits"]
+
+    train_path = PROJECT_ROOT / paths["train_csv"]
+    if not train_path.exists():
+        raise SystemExit(
+            f"{train_path} not found. Run `python -m scripts.preprocess` (or `dvc repro`) first."
+        )
+
+    df = pd.read_csv(train_path, parse_dates=["date"]).sort_values("date").reset_index(drop=True)
+    feat_cols = [c for c in df.columns if c not in META_COLS + [target]]
+    X = df[feat_cols].to_numpy(dtype=float)
+    y = df[target].to_numpy()
+    print(f"[train:{version}] {len(df):,} rows  {len(feat_cols)} features  {n_splits}-fold TS-CV")
+
+    best = None  # (log_loss, name, params, estimator)
+    for name, params, est in build_candidates(config["models"], seed):
+        log_loss, acc = cv_scores(est, X, y, n_splits)
+        print(f"  {name:<20} {params}  -> cv_log_loss={log_loss:.4f}  cv_acc={acc:.3f}")
+        if best is None or log_loss < best[0]:
+            best = (log_loss, name, params, est)
+
+    best_ll, best_name, best_params, best_est = best
+    print(f"  BEST: {best_name} {best_params}  cv_log_loss={best_ll:.4f}")
+
+    best_est.fit(X, y)  # refit on the full train set
+
+    models_dir = PROJECT_ROOT / paths["model_output"]
+    models_dir.mkdir(parents=True, exist_ok=True)
+    bundle = {
+        "pipeline": best_est,
+        "features": feat_cols,
+        "classes": [str(c) for c in CLASSES],
+        "feature_version": version,
+        "model_name": best_name,
+        "params": best_params,
+        "cv_log_loss": best_ll,
+    }
+    model_path = models_dir / "model.joblib"
+    joblib.dump(bundle, model_path)
+    print(f"  -> {model_path}")
+
+
+if __name__ == "__main__":
+    main()
