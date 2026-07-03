@@ -1,0 +1,25 @@
+# Central parameters file (DVC-style). Each pipeline stage reads its section.
+mlflow:
+  experiment: wc2026-forecasting
+
+data:
+  raw_path: data/raw/results.csv
+  raw_url: https://raw.githubusercontent.com/martj42/international_results/master/results.csv
+  processed_dir: data/processed
+  train_path: data/processed/train.csv
+  test_path: data/processed/test.csv
+  snapshot_path: data/processed/ratings_snapshot.joblib
+
+preprocess:
+  # v1 = Elo-only features | v2 = Elo + rolling form + head-to-head
+  feature_version: v1
+  train_start: "1994-01-01"   # keep modern-era matches only for training
+  test_cut: "2023-01-01"      # time-aware split: test = matches on/after this date
+  elo:
+    initial_rating: 1500
+    k_factor: 20
+    home_advantage: 60        # Elo bonus for the home side (ignored on neutral ground)
+  form:
+    window: 10                # rolling form: last N matches per team (v2 only)
+  h2h:
+    window: 5                 # head-to-head: last N direct meetings (v2 only)

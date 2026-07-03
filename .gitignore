@@ -1,0 +1,17 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# MLflow local store
+mlruns/
+mlartifacts/
+mlflow.db
+
+# Data & models (versioned with DVC, not git)
+data/
+models/*.joblib
+
+# Secrets / env
+.env
