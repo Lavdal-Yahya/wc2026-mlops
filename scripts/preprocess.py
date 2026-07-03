@@ -2,20 +2,36 @@
 
 Builds the model-ready train/test tables and the serving-time ratings snapshot.
 
+Outputs:
+  data/processed/train.csv               (train + val, chronological)
+  data/processed/test.csv                (held-out: date > validation.val_end)
+  data/processed/ratings_snapshot.joblib (per-team Elo + rolling form for the Flask app)
+
 The feature set is controlled by ``params.yaml -> features.version``:
   v1 = Elo + match-context
   v2 = Elo + rolling form + head-to-head + match-context
 This is the knob DVC uses to produce two different data versions (PDF §5): change
 ``features.version`` in params.yaml, re-run the stage, and commit the new .dvc state.
+
+Run from the project root:  python -m scripts.preprocess
 """
 from __future__ import annotations
 
 from collections import deque
 
+import joblib
+import numpy as np
 import pandas as pd
+from dotenv import load_dotenv
 
-from src.features.build import CONTEXT_COLS
+from src.data.load import load_raw
+from src.data.splits import chronological_split
+from src.features.build import CONTEXT_COLS, build_features
 from src.features.elo import INITIAL_RATING, final_ratings
+from src.utils.config import PROJECT_ROOT, load_config
+from src.utils.seeds import set_global_seed
+
+load_dotenv()
 
 # Feature groups, matched exactly to the column names emitted by src/features/*.
 ELO_COLS = ["elo_home", "elo_away", "elo_diff", "elo_expected_home"]
@@ -26,6 +42,7 @@ ROLLING_COLS = [
     "form_away_gs", "form_away_gc", "rest_away_days",
 ]
 H2H_COLS = ["h2h_total", "h2h_home_winrate", "h2h_draw_rate", "h2h_goal_diff_mean"]
+META_COLS = ["date", "home_team", "away_team", "tournament", "neutral"]
 
 
 def select_feature_columns(version: str) -> list[str]:
@@ -75,3 +92,70 @@ def build_ratings_snapshot(matches: pd.DataFrame, *, window: int) -> dict[str, d
             "matches": len(dq) if dq else 0,
         }
     return snapshot
+
+
+def main() -> None:
+    config = load_config()
+    set_global_seed(config.get("seed", 42))
+
+    paths = config["paths"]
+    version = config["features"]["version"]
+    target_col = config["target"]["column"]
+    validation = config["validation"]
+    window = config["features"]["rolling"]["window_matches"]
+
+    results_csv = PROJECT_ROOT / paths["results_csv"]
+    if not results_csv.exists():
+        raise SystemExit(
+            f"Raw data not found at {results_csv}.\n"
+            f"Download the Kaggle dataset ({config['dataset']['kaggle_slug']}) into "
+            "data/raw/ or pull it via DVC/S3 before running preprocess."
+        )
+
+    # Full leakage-safe feature table (save=False to avoid the parquet/pyarrow dep;
+    # this stage only needs the in-memory frame to slice train/test CSVs).
+    features = build_features(save=False)
+
+    feat_cols = select_feature_columns(version)
+    missing = [c for c in feat_cols if c not in features.columns]
+    if missing:
+        raise KeyError(f"Feature columns missing from build output: {missing}")
+
+    df = features[META_COLS + feat_cols].copy()
+    df[target_col] = features["outcome"].astype(str)
+    # Simple, documented imputation: cold-start rows (early history / first H2H
+    # meeting) carry NaNs. Fill with 0.0 so downstream sklearn estimators are happy;
+    # the train stage may revisit this if a smarter imputer is warranted.
+    df[feat_cols] = df[feat_cols].fillna(0.0)
+
+    split = chronological_split(
+        features, train_end=validation["train_end"], val_end=validation["val_end"]
+    )
+    train_idx = np.concatenate([split.train_idx, split.val_idx])
+    train_df = df.loc[train_idx].sort_values("date").reset_index(drop=True)
+    test_df = df.loc[split.test_idx].sort_values("date").reset_index(drop=True)
+
+    processed_dir = PROJECT_ROOT / "data" / "processed"
+    processed_dir.mkdir(parents=True, exist_ok=True)
+    train_path = PROJECT_ROOT / paths["train_csv"]
+    test_path = PROJECT_ROOT / paths["test_csv"]
+    snap_path = PROJECT_ROOT / paths["ratings_snapshot"]
+
+    train_df.to_csv(train_path, index=False)
+    test_df.to_csv(test_path, index=False)
+
+    snapshot = build_ratings_snapshot(load_raw(config).matches, window=window)
+    joblib.dump(snapshot, snap_path)
+
+    print(
+        f"[preprocess:{version}] "
+        f"train={len(train_df):,} rows  test={len(test_df):,} rows  "
+        f"features={len(feat_cols)}  teams={len(snapshot):,}"
+    )
+    print(f"  -> {train_path}")
+    print(f"  -> {test_path}")
+    print(f"  -> {snap_path}")
+
+
+if __name__ == "__main__":
+    main()
