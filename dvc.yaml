@@ -1,0 +1,28 @@
+# DVC pipeline — reproducible stages (PDF §5).
+#
+# Run the whole pipeline:      dvc repro
+# Push tracked data to S3:      dvc push
+# Pull it on another machine:   dvc pull
+#
+# The two required data versions come from params.yaml -> features.version.
+# DVC watches that param below, so switching v1 <-> v2 and running `dvc repro`
+# regenerates the outputs; commit the resulting dvc.lock to snapshot each version.
+stages:
+  preprocess:
+    cmd: python -m scripts.preprocess
+    deps:
+      - scripts/preprocess.py
+      - src/data/load.py
+      - src/data/splits.py
+      - src/features
+      - data/raw
+    params:
+      - seed
+      - features.version
+      - features.rolling.window_matches
+      - validation.train_end
+      - validation.val_end
+    outs:
+      - data/processed/train.csv
+      - data/processed/test.csv
+      - data/processed/ratings_snapshot.joblib
