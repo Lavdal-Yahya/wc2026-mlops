@@ -1,0 +1,61 @@
+seed: 42
+
+paths:
+  raw_dir: data/raw/International football results from 1872 to 2026
+  results_csv: data/raw/International football results from 1872 to 2026/results.csv
+  shootouts_csv: data/raw/International football results from 1872 to 2026/shootouts.csv
+  former_names_csv: data/raw/International football results from 1872 to 2026/former_names.csv
+  processed_data: data/processed/matches_features.parquet
+  train_csv: data/processed/train.csv
+  test_csv: data/processed/test.csv
+  ratings_snapshot: data/processed/ratings_snapshot.joblib
+  model_output: models/
+  figures: figures
+  reports: reports
+
+dataset:
+  kaggle_slug: martj42/international-football-results-from-1872-to-2017
+
+target:
+  column: result
+  classes: [away_win, draw, home_win]
+
+validation:
+  scheme: chronological_split
+  train_end: "2018-12-31"
+  val_end: "2022-12-31"
+  test_start: "2023-01-01"
+  cv:
+    type: expanding_window
+    n_splits: 5
+
+# feature_version controls the feature engineering variant tracked by DVC:
+#   v1 = Elo-only features
+#   v2 = Elo + rolling form + head-to-head
+features:
+  version: v1
+  elo:
+    initial: 1500
+    k_base: 30
+  rolling:
+    window_matches: 10
+
+models:
+  logistic_regression:
+    C: [0.01, 0.1, 1.0, 10.0]
+    max_iter: 2000
+  random_forest:
+    n_estimators: [200, 400]
+    max_depth: [null, 6, 12]
+    min_samples_leaf: [1, 5]
+  gradient_boosting:
+    n_estimators: [200, 400]
+    max_depth: [2, 3, 4]
+    learning_rate: [0.05, 0.1]
+
+mlflow:
+  experiment: wc2026-forecast
+  registered_model: wc-outcome-model
+
+simulation:
+  n_simulations: 20000
