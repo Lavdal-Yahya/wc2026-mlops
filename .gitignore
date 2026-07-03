@@ -44,6 +44,11 @@ mlflow.db
 .env
 *.pem
 
+# Local planning docs (not part of the deliverable repo)
+Instructions_Projet_MLOps.pdf
+mlops_project_plan.md
+mlops_team_tasks.md
+
 # OS
 .DS_Store
 Thumbs.db
