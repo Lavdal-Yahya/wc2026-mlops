@@ -10,9 +10,9 @@ End-to-end MLOps project for the **MLOps & Model Deployment** module (SupNum, Ma
 
 | Resource | URL |
 |---|---|
-| Flask app (predictions) | `http://3.21.66.2:8000` |
-| MLflow UI (experiments + registry) | `http://18.190.116.80:5000` |
-| GitHub repository | `https://github.com/Lavdal-Yahya/wc2026-mlops` |
+| Flask app (predictions) | http://3.21.66.2:8000 |
+| MLflow UI (experiments + registry) | http://18.190.116.80:5000 |
+| GitHub repository | `https://github.com/Lavdal-Yahya/wc2026-mlops` (private, prof added) |
 
 **Team:** Mouhamedou Yahya Cheikh Med Vall (25239) · Mounaa Mahfoudh (22074) · Mohamed Dhmin (22040) · Souleymane Baba (22018)
 
@@ -32,7 +32,7 @@ End-to-end MLOps project for the **MLOps & Model Deployment** module (SupNum, Ma
 
 ### Model comparison
 
-The pipeline trains and compares the three models on the same time-aware split (test from 2023-01-01), with a uniform baseline (log loss `ln 3 ≈ 1.099`) as reference. Log loss, Brier, accuracy and macro F1 are logged to MLflow per run (see the MLflow link above). The lowest-log-loss model is promoted to the Model Registry as `wc-outcome-model` and served directly by the app.
+The pipeline compares Logistic Regression, Random Forest and Gradient Boosting — 28 configurations per data version, 62 runs total logged to MLflow (experiment `wc2026-forecast`). On the test set (from 2023-01-01) all three reach comparable accuracy (~57%); probability quality is the tiebreaker. **Logistic Regression** (on the v2 feature set) achieves the best test log loss, **0.864** (vs `ln 3 ≈ 1.099` for the uniform baseline), while staying the simplest and best-calibrated. It is registered as `wc-outcome-model` (version 1) and served by the app.
 
 ---
 
@@ -67,11 +67,11 @@ The pipeline trains and compares the three models on the same time-aware split (
                      └──────────────────────────────┘
 ```
 
-- **GitHub & collaboration.** One personal branch per member, convention `feat/<topic>-<owner>` (`feat/preprocess-souleyman`, `feat/mouna-preprocess-train`, `feat/flask-serving-mohamed`, `feat/infra-flask-lavdal`), merged via PRs into `dev` then `main`. Non-linear history (5 merges); ≥ 3 meaningful commits per member.
-- **Amazon S3.** Single bucket as shared store: `raw/` (raw data), `processed/` (processed data + ratings snapshot), `models/` (DVC-versioned artifacts). Doubles as the DVC remote and MLflow artifact store.
-- **DVC — reproducible pipeline.** Three stages in `dvc.yaml` (`preprocess → train → evaluate`); all params centralized in `params.yaml` (`seed = 42`). **Two interchangeable data versions**: **v1** (Elo-only features) and **v2** (v1 + rolling form + head-to-head), switchable via `git checkout` + `dvc checkout`.
-- **MLflow (EC2 #1).** Tracking server logging hyperparameters, metrics (log loss, Brier, accuracy, macro F1) and artifacts per run. **Only the best model** (lowest log loss) is promoted to the Model Registry as `wc-outcome-model`.
-- **Flask (EC2 #2).** Loads the latest registered model plus the **ratings snapshot** (latest Elo + form per team). User picks two teams; the feature vector is rebuilt server-side exactly as at training time, and outcome probabilities are returned.
+- **GitHub & collaboration.** One personal branch per member, convention `feat/<topic>-<owner>` (`feat/preprocess-souleyman`, `feat/mouna-preprocess-train`, `feat/flask-serving-mohamed`, `feat/infra-flask-lavdal`), merged via PRs into `dev` then `main`. Non-linear history (6 merges); ≥ 3 meaningful commits per member.
+- **Amazon S3.** Single bucket (`wc2026-mlops-lavdal`) as shared store: `raw/`, `processed/` (processed data + ratings snapshot), `models/` (DVC-versioned artifacts), `mlflow/` (experiment artifacts). Doubles as the DVC remote and MLflow artifact store.
+- **DVC — reproducible pipeline.** Three stages in `dvc.yaml` (`preprocess → train → evaluate`); all params centralized in `params.yaml` (`seed = 42`). **Two data versions executed, tagged and pushed to S3** — `data-v1` (Elo features, 15-col train) and `data-v2` (+ rolling + head-to-head, 31-col train) — switchable via `git checkout <tag>` + `dvc checkout`/`dvc pull` from any clone.
+- **MLflow (EC2 #1, Elastic IP).** Tracking server logging hyperparameters, metrics (log loss, Brier, accuracy, macro F1) and artifacts — 62 runs total. **Only the best model** (lowest log loss) is promoted to the Model Registry as `wc-outcome-model`.
+- **Flask (EC2 #2, Elastic IP).** Loads the latest registered model plus the **ratings snapshot** (latest Elo + form per team). User picks two teams; the feature vector is rebuilt server-side exactly as at training time, and outcome probabilities are returned.
 
 ---
 
@@ -102,9 +102,8 @@ dvc repro                 # preprocess → train → evaluate, logged to MLflow
 
 ### Switch data versions
 ```bash
-git checkout data-v1 && dvc pull     # Elo-only features (v1)
-git checkout data-v2 && dvc pull     # + rolling + h2h (v2)
-# (dvc pull = fetch S3 + checkout; instant once both versions are in the local cache)
+git checkout <v1-commit> && dvc checkout     # Elo-only features (v1)
+git checkout <v2-commit> && dvc checkout     # + rolling + h2h (v2)
 ```
 
 ### Serve the app locally
@@ -134,21 +133,9 @@ wc2026-mlops/
 
 ## 5. Screenshots
 
-**MLflow — experiment history (62 runs, v1 + v2):**
-
-![MLflow runs](docs/img/mlflow_runs.png)
-
-**MLflow — Model Registry (only the best model, `wc-outcome-model`):**
-
-![MLflow registry](docs/img/mlflow_registry.png)
-
-**DVC — 3-stage pipeline + switchable data versions:**
-
-![DVC dag](docs/img/dvc_dag.png)
-
-**Flask — live prediction:**
-
-![Flask prediction](docs/img/flask_predict.png)
+| MLflow — experiments & runs | DVC — versioned pipeline | Flask — prediction |
+|---|---|---|
+| `docs/img/mlflow_runs.png` | `docs/img/dvc_dag.png` | `docs/img/flask_predict.png` |
 
 ---
 
