@@ -133,9 +133,21 @@ wc2026-mlops/
 
 ## 5. Screenshots
 
-| MLflow — experiments & runs | DVC — versioned pipeline | Flask — prediction |
-|---|---|---|
-| `docs/img/mlflow_runs.png` | `docs/img/dvc_dag.png` | `docs/img/flask_predict.png` |
+**MLflow — experiment history (62 runs, v1 + v2):**
+
+![MLflow runs](docs/img/mlflow_runs.png)
+
+**MLflow — Model Registry (only the best model, `wc-outcome-model`):**
+
+![MLflow registry](docs/img/mlflow_registry.png)
+
+**DVC — 3-stage pipeline + switchable data versions:**
+
+![DVC dag](docs/img/dvc_dag.png)
+
+**Flask — live prediction:**
+
+![Flask prediction](docs/img/flask_predict.png)
 
 ---
 
