@@ -102,8 +102,9 @@ dvc repro                 # preprocess → train → evaluate, logged to MLflow
 
 ### Switch data versions
 ```bash
-git checkout data-v1 && dvc checkout     # Elo-only features (v1)
-git checkout data-v2 && dvc checkout     # + rolling + h2h (v2)
+git checkout data-v1 && dvc pull     # Elo-only features (v1)
+git checkout data-v2 && dvc pull     # + rolling + h2h (v2)
+# (dvc pull = fetch S3 + checkout; instant once both versions are in the local cache)
 ```
 
 ### Serve the app locally
