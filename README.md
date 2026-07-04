@@ -10,9 +10,9 @@ End-to-end MLOps project for the **MLOps & Model Deployment** module (SupNum, Ma
 
 | Resource | URL |
 |---|---|
-| Flask app (predictions) | `http://<flask-public-dns>:8000` |
-| MLflow UI (experiments + registry) | `http://18.224.151.31:5000` |
-| GitHub repository | `https://github.com/Lavdal-Yahya/wc2026-mlops` (private, prof added) |
+| Flask app (predictions) | `http://3.21.66.2:8000` |
+| MLflow UI (experiments + registry) | `http://18.190.116.80:5000` |
+| GitHub repository | `https://github.com/Lavdal-Yahya/wc2026-mlops` |
 
 **Team:** Mouhamedou Yahya Cheikh Med Vall (25239) · Mounaa Mahfoudh (22074) · Mohamed Dhmin (22040) · Souleymane Baba (22018)
 
@@ -102,13 +102,13 @@ dvc repro                 # preprocess → train → evaluate, logged to MLflow
 
 ### Switch data versions
 ```bash
-git checkout <v1-commit> && dvc checkout     # Elo-only features (v1)
-git checkout <v2-commit> && dvc checkout     # + rolling + h2h (v2)
+git checkout data-v1 && dvc checkout     # Elo-only features (v1)
+git checkout data-v2 && dvc checkout     # + rolling + h2h (v2)
 ```
 
 ### Serve the app locally
 ```bash
-export MLFLOW_TRACKING_URI=http://18.224.151.31:5000
+export MLFLOW_TRACKING_URI=http://18.190.116.80:5000
 python app/app.py         # or: gunicorn -b 0.0.0.0:8000 app.app:app
 ```
 
