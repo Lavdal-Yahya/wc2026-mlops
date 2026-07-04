@@ -1,0 +1,134 @@
+schema: '2.0'
+stages:
+  preprocess:
+    cmd: python -m scripts.preprocess
+    deps:
+    - path: data/raw
+      hash: md5
+      md5: a7ae1cd0f855e03a395ea7a9ffaf2325.dir
+      size: 3756537
+      nfiles: 4
+    - path: scripts/preprocess.py
+      hash: md5
+      md5: 4305059eeeb5ebebe80974891bdf7dc4
+      size: 10565
+    - path: src/data/load.py
+      hash: md5
+      md5: ae3c9adb366b7a9836f93b5b2aec06ae
+      size: 3821
+    - path: src/data/splits.py
+      hash: md5
+      md5: d41048b0e99e026e566894845af630de
+      size: 3080
+    - path: src/features
+      hash: md5
+      md5: 2678a873f8157866049a60aa83187ccb.dir
+      size: 30900
+      nfiles: 10
+    params:
+      params.yaml:
+        features.rolling.window_matches: 10
+        features.version: v1
+        seed: 42
+        validation.train_end: '2018-12-31'
+        validation.val_end: '2022-12-31'
+    outs:
+    - path: data/processed/ratings_snapshot.joblib
+      hash: md5
+      md5: 6ad9e461084c8a3ecddaefe2a5ec8274
+      size: 371746
+    - path: data/processed/test.csv
+      hash: md5
+      md5: 2af164dc68d6b89e3263b7419e32eda2
+      size: 551365
+    - path: data/processed/train.csv
+      hash: md5
+      md5: d352605969f99cab5ca0243071b10f81
+      size: 6703394
+  train:
+    cmd: python -m scripts.train
+    deps:
+    - path: data/processed/train.csv
+      hash: md5
+      md5: d352605969f99cab5ca0243071b10f81
+      size: 6703394
+    - path: scripts/train.py
+      hash: md5
+      md5: 40d7fb77fa188ed9f6a0994fafe6b6dd
+      size: 8264
+    - path: src/evaluation/metrics.py
+      hash: md5
+      md5: eb5bb77eead2fc7ed9e54f6cb7af1904
+      size: 3404
+    params:
+      params.yaml:
+        features.version: v1
+        models:
+          logistic_regression:
+            C:
+            - 0.01
+            - 0.1
+            - 1.0
+            - 10.0
+            max_iter: 2000
+          random_forest:
+            n_estimators:
+            - 200
+            - 400
+            max_depth:
+            - 
+            - 6
+            - 12
+            min_samples_leaf:
+            - 1
+            - 5
+          gradient_boosting:
+            n_estimators:
+            - 200
+            - 400
+            max_depth:
+            - 2
+            - 3
+            - 4
+            learning_rate:
+            - 0.05
+            - 0.1
+        seed: 42
+        validation.cv.n_splits: 5
+    outs:
+    - path: models/model.joblib
+      hash: md5
+      md5: 4564637706225223aa12904767f08ab6
+      size: 2222
+  evaluate:
+    cmd: python -m scripts.evaluate
+    deps:
+    - path: data/processed/test.csv
+      hash: md5
+      md5: 2af164dc68d6b89e3263b7419e32eda2
+      size: 551365
+    - path: models/model.joblib
+      hash: md5
+      md5: 4564637706225223aa12904767f08ab6
+      size: 2222
+    - path: scripts/evaluate.py
+      hash: md5
+      md5: 113c8700fa29f927a4b3d92c149e4c80
+      size: 8195
+    - path: src/evaluation/metrics.py
+      hash: md5
+      md5: eb5bb77eead2fc7ed9e54f6cb7af1904
+      size: 3404
+    outs:
+    - path: reports/calibration_curve.png
+      hash: md5
+      md5: d108d06b03d06e54cc46d10963a10bd9
+      size: 84934
+    - path: reports/confusion_matrix.png
+      hash: md5
+      md5: 09726a828e1c724afcb5664f2cc32524
+      size: 56681
+    - path: reports/metrics.json
+      hash: md5
+      md5: 229a8d51ebef3d6194f6739e0c3b9ada
+      size: 976
