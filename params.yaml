@@ -33,7 +33,7 @@ validation:
 #   v1 = Elo-only features
 #   v2 = Elo + rolling form + head-to-head
 features:
-  version: v1
+  version: v2
   elo:
     initial: 1500
     k_base: 30

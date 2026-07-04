@@ -28,30 +28,30 @@ stages:
     params:
       params.yaml:
         features.rolling.window_matches: 10
-        features.version: v1
+        features.version: v2
         seed: 42
         validation.train_end: '2018-12-31'
         validation.val_end: '2022-12-31'
     outs:
     - path: data/processed/ratings_snapshot.joblib
       hash: md5
-      md5: 6ad9e461084c8a3ecddaefe2a5ec8274
-      size: 371746
+      md5: d2672a1dcbc6430d2fcbca1b2f40dcd0
+      size: 372421
     - path: data/processed/test.csv
       hash: md5
-      md5: 2af164dc68d6b89e3263b7419e32eda2
-      size: 551365
+      md5: 547d9d208416188e8e05c2a0398c8871
+      size: 860874
     - path: data/processed/train.csv
       hash: md5
-      md5: d352605969f99cab5ca0243071b10f81
-      size: 6703394
+      md5: 5a01db0fe12bb0e0b5a8a69688669a79
+      size: 10566853
   train:
     cmd: python -m scripts.train
     deps:
     - path: data/processed/train.csv
       hash: md5
-      md5: d352605969f99cab5ca0243071b10f81
-      size: 6703394
+      md5: 5a01db0fe12bb0e0b5a8a69688669a79
+      size: 10566853
     - path: scripts/train.py
       hash: md5
       md5: 40d7fb77fa188ed9f6a0994fafe6b6dd
@@ -62,7 +62,7 @@ stages:
       size: 3404
     params:
       params.yaml:
-        features.version: v1
+        features.version: v2
         models:
           logistic_regression:
             C:
@@ -98,19 +98,19 @@ stages:
     outs:
     - path: models/model.joblib
       hash: md5
-      md5: 4564637706225223aa12904767f08ab6
-      size: 2222
+      md5: 4daf9c081ddb0c3c095265ad99135d5e
+      size: 3266
   evaluate:
     cmd: python -m scripts.evaluate
     deps:
     - path: data/processed/test.csv
       hash: md5
-      md5: 2af164dc68d6b89e3263b7419e32eda2
-      size: 551365
+      md5: 547d9d208416188e8e05c2a0398c8871
+      size: 860874
     - path: models/model.joblib
       hash: md5
-      md5: 4564637706225223aa12904767f08ab6
-      size: 2222
+      md5: 4daf9c081ddb0c3c095265ad99135d5e
+      size: 3266
     - path: scripts/evaluate.py
       hash: md5
       md5: 113c8700fa29f927a4b3d92c149e4c80
@@ -122,13 +122,13 @@ stages:
     outs:
     - path: reports/calibration_curve.png
       hash: md5
-      md5: d108d06b03d06e54cc46d10963a10bd9
-      size: 84934
+      md5: dc0c1f8032f106d3649e270e6356c6c4
+      size: 88559
     - path: reports/confusion_matrix.png
       hash: md5
-      md5: 09726a828e1c724afcb5664f2cc32524
-      size: 56681
+      md5: 8106bc998a4dc66cb2dd54831c42fa25
+      size: 55975
     - path: reports/metrics.json
       hash: md5
-      md5: 229a8d51ebef3d6194f6739e0c3b9ada
-      size: 976
+      md5: 28c5644b23aa23e07e6842d44f452842
+      size: 987
