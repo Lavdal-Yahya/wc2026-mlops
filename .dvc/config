@@ -1,5 +1,5 @@
 [core]
     remote = storage
 ['remote "storage"']
-    url = s3://wc2026-mlops-2026/dvc
+    url = s3://wc2026-mlops-lavdal/models
     region = us-east-1
